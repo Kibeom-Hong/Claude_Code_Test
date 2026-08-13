@@ -1,0 +1,75 @@
+name: demo-tunnel
+
+# 독서토론 중계 서버를 Actions 러너에서 띄우고 Cloudflare 빠른 터널로 공개한다.
+# 실행 후 접속 주소는 run의 Summary와 브랜치의 tunnel-url.txt에 기록된다.
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: '터널 유지 시간(분), 최대 340'
+        default: '120'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  tunnel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r ai-debate-broadcast/requirements.txt
+
+      - name: Start server
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cd ai-debate-broadcast
+          nohup uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          sleep 3
+          curl -sf http://127.0.0.1:8000/api/state
+
+      - name: Start cloudflare tunnel
+        run: |
+          curl -sSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          nohup /tmp/cloudflared tunnel --url http://127.0.0.1:8000 --no-autoupdate > /tmp/tunnel.log 2>&1 &
+          URL=""
+          for i in $(seq 1 30); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          if [ -z "$URL" ]; then cat /tmp/tunnel.log; exit 1; fi
+          sleep 3
+          curl -sf "$URL/api/state"
+          echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
+          {
+            echo "## 접속 주소"
+            echo "- 참가팀 화면: $URL/team"
+            echo "- 청중 화면: $URL/audience"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish tunnel URL to branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "$TUNNEL_URL" > tunnel-url.txt
+          git add tunnel-url.txt
+          git commit -m "chore: update demo tunnel URL"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Keep alive
+        run: |
+          MIN="${{ github.event.inputs.duration_minutes || '120' }}"
+          [ "$MIN" -gt 340 ] && MIN=340
+          echo "Tunnel alive at $TUNNEL_URL for $MIN minutes"
+          sleep $((MIN * 60))
