@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>청중 화면 — 독서토론대회</title>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#f7f7f5; --panel:#fff; --ink:#111827; --muted:#6b7280; --faint:#9ca3af;
+    --line:#e5e7eb; --navy:#1e3a8a; --navy-soft:#eef2ff; --burgundy:#9f1239; --burgundy-soft:#fff1f2;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Pretendard',system-ui,sans-serif; padding:28px 22px; }
+  .wrap { max-width:1080px; margin:0 auto; display:flex; flex-direction:column; gap:20px; }
+  .rule { width:56px; height:4px; background:var(--navy); margin-bottom:10px; }
+  .eyebrow { font-size:.85rem; letter-spacing:.14em; color:var(--navy); font-weight:700; }
+  h1 { margin:4px 0 0; font-family:'Gowun Batang',serif; font-size:2rem; line-height:1.35; }
+  .meta { color:var(--muted); font-size:.95rem; margin-top:4px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:820px) { .grid { grid-template-columns:1fr; } h1 { font-size:1.5rem; } }
+  .col-head { font-family:'Gowun Batang',serif; font-weight:700; font-size:1.15rem;
+    padding-bottom:8px; border-bottom:3px solid; margin-bottom:12px; }
+  .col-head.pro { color:var(--navy); border-color:var(--navy); }
+  .col-head.con { color:var(--burgundy); border-color:var(--burgundy); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px; margin-bottom:14px; }
+  .card.pro { border-left:4px solid var(--navy); }
+  .card.con { border-left:4px solid var(--burgundy); }
+  .card-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .badge { padding:3px 12px; border-radius:20px; font-weight:800; font-size:.78rem; }
+  .badge.pro { background:var(--navy-soft); color:var(--navy); }
+  .badge.con { background:var(--burgundy-soft); color:var(--burgundy); }
+  .idx { color:var(--faint); font-size:.8rem; font-weight:700; }
+  .label { font-size:.72rem; letter-spacing:.1em; color:var(--muted); font-weight:800; margin-bottom:4px; }
+  .prompt-summary { font-size:1.05rem; font-weight:700; line-height:1.55; }
+  .points { margin:6px 0 0; padding-left:20px; }
+  .points li { font-size:.98rem; color:#374151; line-height:1.7; margin-bottom:4px; }
+  .pending { color:var(--faint); font-size:.9rem; }
+  .empty { color:var(--faint); font-size:1rem; line-height:1.8; background:var(--panel);
+    border:1px dashed var(--line); border-radius:12px; padding:28px; text-align:center; }
+  .gap-top { margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="rule"></div>
+    <div class="eyebrow">독서토론대회 · AI 활용 중계</div>
+    <h1 id="topicTitle">논제 설정 대기 중</h1>
+    <div class="meta" id="counts">옹호팀 0회 · 비판팀 0회 AI 활용</div>
+  </header>
+
+  <div id="emptyBox" class="empty">
+    참가팀이 AI를 활용하면 프롬프트와 결과 요약이 이곳에 표시됩니다.
+  </div>
+
+  <div class="grid" id="grid" hidden>
+    <div>
+      <div class="col-head pro">옹호팀</div>
+      <div id="proCol"></div>
+    </div>
+    <div>
+      <div class="col-head con">비판팀</div>
+      <div id="conCol"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let state = { topic: "", entries: [] };
+  const $ = (id) => document.getElementById(id);
+
+  function card(e, idx) {
+    const div = document.createElement("div");
+    div.className = `card ${e.team}`;
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const badge = document.createElement("span");
+    badge.className = `badge ${e.team}`;
+    badge.innerText = e.team === "pro" ? "옹호팀" : "비판팀";
+    const num = document.createElement("span");
+    num.className = "idx";
+    num.innerText = `#${idx}`;
+    head.append(badge, num);
+    div.appendChild(head);
+
+    const pl = document.createElement("div");
+    pl.className = "label";
+    pl.innerText = "프롬프트";
+    div.appendChild(pl);
+
+    const ps = document.createElement("div");
+    ps.className = e.summary ? "prompt-summary" : "pending";
+    ps.innerText = e.summary ? e.summary.prompt_summary : "요약 중…";
+    div.appendChild(ps);
+
+    const ol = document.createElement("div");
+    ol.className = "label gap-top";
+    ol.innerText = "AI 결과 요약";
+    div.appendChild(ol);
+
+    if (e.summary) {
+      const ul = document.createElement("ul");
+      ul.className = "points";
+      (e.summary.output_points || []).forEach((p) => {
+        const li = document.createElement("li");
+        li.innerText = p;
+        ul.appendChild(li);
+      });
+      div.appendChild(ul);
+    } else {
+      const pend = document.createElement("div");
+      pend.className = "pending";
+      pend.innerText = "요약 중…";
+      div.appendChild(pend);
+    }
+    return div;
+  }
+
+  function render() {
+    $("topicTitle").innerText = state.topic || "논제 설정 대기 중";
+    const pro = state.entries.filter(e => e.team === "pro");
+    const con = state.entries.filter(e => e.team === "con");
+    $("counts").innerText = `옹호팀 ${pro.length}회 · 비판팀 ${con.length}회 AI 활용`;
+
+    const has = state.entries.length > 0;
+    $("emptyBox").hidden = has;
+    $("grid").hidden = !has;
+    if (!has) return;
+
+    const proCol = $("proCol"), conCol = $("conCol");
+    proCol.innerHTML = ""; conCol.innerHTML = "";
+    // 최신 활용이 위로 오도록 역순 표시
+    state.entries.forEach((e, i) => {
+      const c = card(e, i + 1);
+      (e.team === "pro" ? proCol : conCol).prepend(c);
+    });
+  }
+
+  let ws = null;
+  function connectWS() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onmessage = (ev) => { state = JSON.parse(ev.data); render(); };
+    ws.onclose = () => setTimeout(connectWS, 2000);
+  }
+  connectWS();
+  setInterval(async () => {
+    if (ws && ws.readyState === WebSocket.OPEN) { ws.send("ping"); return; }
+    try {
+      const res = await fetch("/api/state");
+      state = await res.json();
+      render();
+    } catch {}
+  }, 3000);
+</script>
+</body>
+</html>

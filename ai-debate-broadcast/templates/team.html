@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>참가팀 화면 — 독서토론대회</title>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#f7f7f5; --panel:#fff; --ink:#111827; --muted:#6b7280; --faint:#9ca3af;
+    --line:#e5e7eb; --navy:#1e3a8a; --navy-soft:#eef2ff; --burgundy:#9f1239; --burgundy-soft:#fff1f2;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Pretendard',system-ui,sans-serif; padding:18px 14px; }
+  .wrap { max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  .rule { width:44px; height:3px; background:var(--navy); margin-bottom:8px; }
+  .eyebrow { font-size:.72rem; letter-spacing:.12em; color:var(--navy); font-weight:700; }
+  h1 { margin:2px 0 0; font-family:'Gowun Batang',serif; font-size:1.35rem; line-height:1.35; }
+  .meta { color:var(--muted); font-size:.78rem; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .label { font-size:.7rem; letter-spacing:.1em; color:var(--muted); font-weight:800; margin-bottom:5px; }
+  input[type=text], textarea { width:100%; background:#fff; color:var(--ink);
+    border:1px solid #d1d5db; border-radius:8px; padding:10px 12px; font-size:.9rem; font-family:inherit; }
+  textarea { resize:vertical; min-height:74px; }
+  input:focus, textarea:focus, button:focus-visible { outline:2px solid var(--navy); outline-offset:2px; }
+  .row { display:flex; gap:8px; }
+  button { border:1px solid var(--line); background:#fff; color:var(--muted);
+    border-radius:8px; padding:10px 16px; font-weight:700; font-size:.9rem; cursor:pointer; font-family:inherit; }
+  .primary { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .primary:disabled { opacity:.5; cursor:default; }
+  .team-btn { flex:1; font-weight:800; }
+  .team-btn.pro.on { background:var(--navy-soft); border-color:var(--navy); color:var(--navy); }
+  .team-btn.con.on { background:var(--burgundy-soft); border-color:var(--burgundy); color:var(--burgundy); }
+  .gap { margin-top:14px; }
+  .card { background:#fafafa; border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; margin-bottom:12px; }
+  .card.pro { border-left:3px solid var(--navy); }
+  .card.con { border-left:3px solid var(--burgundy); }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-weight:800; font-size:.72rem; margin-bottom:6px; }
+  .badge.pro { background:var(--navy-soft); color:var(--navy); }
+  .badge.con { background:var(--burgundy-soft); color:var(--burgundy); }
+  .prompt { font-size:.88rem; font-weight:700; line-height:1.6; }
+  .output { font-size:.85rem; color:#374151; line-height:1.7; white-space:pre-wrap;
+    border-top:1px dashed var(--line); padding-top:8px; margin-top:8px; }
+  .empty { color:var(--faint); font-size:.85rem; line-height:1.7; }
+  .error { color:#b91c1c; font-size:.82rem; margin-top:6px; }
+  .notice { color:var(--faint); font-size:.75rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="rule"></div>
+    <div class="eyebrow">독서토론대회 · 참가팀 화면</div>
+    <h1 id="topicTitle">논제를 설정해 주세요</h1>
+    <div class="meta" id="counts">옹호팀 0회 · 비판팀 0회 AI 활용</div>
+  </header>
+
+  <section class="panel">
+    <div class="label">토론 논제</div>
+    <div class="row">
+      <input type="text" id="topicInput" placeholder='예: "채식주의자의 영혜는 주체적 인물이다"'>
+      <button id="topicSave">저장</button>
+    </div>
+
+    <div class="label gap">발언 팀</div>
+    <div class="row">
+      <button class="team-btn pro on" id="btnPro">옹호팀</button>
+      <button class="team-btn con" id="btnCon">비판팀</button>
+    </div>
+
+    <div class="label gap">프롬프트</div>
+    <textarea id="promptInput" placeholder="AI에게 요청할 내용을 입력하세요"></textarea>
+    <div class="row" style="margin-top:8px; justify-content:flex-end;">
+      <button class="primary" id="runBtn">실행</button>
+    </div>
+    <div class="error" id="errorBox" hidden></div>
+    <div class="notice" id="mockNotice" hidden>목업 모드로 동작 중입니다. ANTHROPIC_API_KEY를 설정하면 실제 AI가 답합니다.</div>
+  </section>
+
+  <section class="panel">
+    <div class="label">실행 기록 · 전체 결과</div>
+    <div id="entryList"><div class="empty">프롬프트를 실행하면 AI 결과물 전문이 이곳에 표시됩니다.</div></div>
+  </section>
+</div>
+
+<script>
+  let team = "pro";
+  let state = { topic: "", entries: [] };
+
+  const $ = (id) => document.getElementById(id);
+
+  function render() {
+    $("topicTitle").innerText = state.topic || "논제를 설정해 주세요";
+    const pro = state.entries.filter(e => e.team === "pro").length;
+    const con = state.entries.filter(e => e.team === "con").length;
+    $("counts").innerText = `옹호팀 ${pro}회 · 비판팀 ${con}회 AI 활용`;
+
+    const list = $("entryList");
+    if (!state.entries.length) {
+      list.innerHTML = '<div class="empty">프롬프트를 실행하면 AI 결과물 전문이 이곳에 표시됩니다.</div>';
+      return;
+    }
+    list.innerHTML = "";
+    state.entries.forEach(e => {
+      const card = document.createElement("div");
+      card.className = `card ${e.team}`;
+      const badge = document.createElement("span");
+      badge.className = `badge ${e.team}`;
+      badge.innerText = e.team === "pro" ? "옹호팀" : "비판팀";
+      const prompt = document.createElement("div");
+      prompt.className = "prompt";
+      prompt.innerText = e.prompt;
+      const output = document.createElement("div");
+      output.className = "output";
+      output.innerText = e.output;
+      card.append(badge, prompt, output);
+      list.appendChild(card);
+    });
+    list.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function setTeam(t) {
+    team = t;
+    $("btnPro").classList.toggle("on", t === "pro");
+    $("btnCon").classList.toggle("on", t === "con");
+  }
+  $("btnPro").onclick = () => setTeam("pro");
+  $("btnCon").onclick = () => setTeam("con");
+
+  $("topicSave").onclick = async () => {
+    await fetch("/api/topic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: $("topicInput").value }),
+    });
+  };
+
+  $("runBtn").onclick = async () => {
+    const prompt = $("promptInput").value.trim();
+    if (!prompt) return;
+    $("errorBox").hidden = true;
+    $("runBtn").disabled = true;
+    $("runBtn").innerText = "생성 중…";
+    try {
+      const res = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team, prompt }),
+      });
+      const data = await res.json();
+      if (data.status !== "success") throw new Error(data.message);
+      $("promptInput").value = "";
+      $("mockNotice").hidden = !data.mock_mode;
+    } catch (err) {
+      $("errorBox").innerText = "AI 호출에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+      $("errorBox").hidden = false;
+    } finally {
+      $("runBtn").disabled = false;
+      $("runBtn").innerText = "실행";
+    }
+  };
+
+  // 실시간 동기화: WebSocket + 폴링 폴백
+  let ws = null;
+  function connectWS() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onmessage = (ev) => { state = JSON.parse(ev.data); render(); };
+    ws.onclose = () => setTimeout(connectWS, 2000);
+  }
+  connectWS();
+  setInterval(async () => {
+    if (ws && ws.readyState === WebSocket.OPEN) { ws.send("ping"); return; }
+    try {
+      const res = await fetch("/api/state");
+      state = await res.json();
+      render();
+    } catch {}
+  }, 3000);
+</script>
+</body>
+</html>
