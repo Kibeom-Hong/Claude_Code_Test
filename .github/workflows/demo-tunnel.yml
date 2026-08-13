@@ -48,8 +48,13 @@ jobs:
             sleep 2
           done
           if [ -z "$URL" ]; then cat /tmp/tunnel.log; exit 1; fi
-          sleep 3
-          curl -sf "$URL/api/state"
+          # 새 trycloudflare 도메인의 DNS 전파를 기다리며 재시도 검증
+          OK=""
+          for i in $(seq 1 20); do
+            if curl -sf --max-time 10 "$URL/api/state" > /dev/null; then OK=1; break; fi
+            sleep 5
+          done
+          if [ -z "$OK" ]; then echo "tunnel not reachable"; cat /tmp/tunnel.log; exit 1; fi
           echo "TUNNEL_URL=$URL" >> "$GITHUB_ENV"
           {
             echo "## 접속 주소"
