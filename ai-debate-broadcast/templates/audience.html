@@ -32,6 +32,8 @@
   .badge { padding:3px 12px; border-radius:20px; font-weight:800; font-size:.78rem; }
   .badge.pro { background:var(--navy-soft); color:var(--navy); }
   .badge.con { background:var(--burgundy-soft); color:var(--burgundy); }
+  .src-tag { display:inline-block; margin-left:6px; padding:2px 9px; border-radius:20px;
+    background:#f3f4f6; color:var(--muted); font-weight:700; font-size:.72rem; }
   .idx { color:var(--faint); font-size:.8rem; font-weight:700; }
   .label { font-size:.72rem; letter-spacing:.1em; color:var(--muted); font-weight:800; margin-bottom:4px; }
   .prompt-summary { font-size:1.05rem; font-weight:700; line-height:1.55; }
@@ -81,10 +83,18 @@
     const badge = document.createElement("span");
     badge.className = `badge ${e.team}`;
     badge.innerText = e.team === "pro" ? "옹호팀" : "비판팀";
+    const left = document.createElement("span");
+    left.appendChild(badge);
+    if (e.source && e.source !== "claude") {
+      const tag = document.createElement("span");
+      tag.className = "src-tag";
+      tag.innerText = e.source;
+      left.appendChild(tag);
+    }
     const num = document.createElement("span");
     num.className = "idx";
     num.innerText = `#${idx}`;
-    head.append(badge, num);
+    head.append(left, num);
     div.appendChild(head);
 
     const pl = document.createElement("div");

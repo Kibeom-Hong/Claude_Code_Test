@@ -32,6 +32,10 @@
   .team-btn { flex:1; font-weight:800; }
   .team-btn.pro.on { background:var(--navy-soft); border-color:var(--navy); color:var(--navy); }
   .team-btn.con.on { background:var(--burgundy-soft); border-color:var(--burgundy); color:var(--burgundy); }
+  .mode-btn { font-size:.82rem; }
+  .mode-btn.on { background:#f3f4f6; border-color:var(--ink); color:var(--ink); }
+  .src-tag { display:inline-block; margin-left:6px; padding:2px 8px; border-radius:20px;
+    background:#f3f4f6; color:var(--muted); font-weight:700; font-size:.68rem; }
   .gap { margin-top:14px; }
   .card { background:#fafafa; border:1px solid var(--line); border-radius:10px;
     padding:12px 14px; margin-bottom:12px; }
@@ -70,8 +74,22 @@
       <button class="team-btn con" id="btnCon">비판팀</button>
     </div>
 
+    <div class="label gap">입력 방식</div>
+    <div class="row">
+      <button class="team-btn mode-btn on" id="modeRun">AI 실행 (Claude)</button>
+      <button class="team-btn mode-btn" id="modeIngest">외부 결과 입력 (Gemini 등)</button>
+    </div>
+
     <div class="label gap">프롬프트</div>
     <textarea id="promptInput" placeholder="AI에게 요청할 내용을 입력하세요"></textarea>
+
+    <div id="ingestBox" hidden>
+      <div class="label gap">외부 AI 결과물</div>
+      <textarea id="outputInput" placeholder="Gemini 등 외부 AI의 응답 전문을 붙여넣으세요"></textarea>
+      <div class="label gap">출처</div>
+      <input type="text" id="sourceInput" value="gemini">
+    </div>
+
     <div class="row" style="margin-top:8px; justify-content:flex-end;">
       <button class="primary" id="runBtn">실행</button>
     </div>
@@ -115,7 +133,14 @@
       const output = document.createElement("div");
       output.className = "output";
       output.innerText = e.output;
-      card.append(badge, prompt, output);
+      card.appendChild(badge);
+      if (e.source && e.source !== "claude") {
+        const tag = document.createElement("span");
+        tag.className = "src-tag";
+        tag.innerText = e.source;
+        card.appendChild(tag);
+      }
+      card.append(prompt, output);
       list.appendChild(card);
     });
     list.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -129,6 +154,17 @@
   $("btnPro").onclick = () => setTeam("pro");
   $("btnCon").onclick = () => setTeam("con");
 
+  let mode = "run"; // 'run' = 서버가 Claude 호출, 'ingest' = 외부 AI 결과 붙여넣기
+  function setMode(m) {
+    mode = m;
+    $("modeRun").classList.toggle("on", m === "run");
+    $("modeIngest").classList.toggle("on", m === "ingest");
+    $("ingestBox").hidden = m !== "ingest";
+    $("runBtn").innerText = m === "run" ? "실행" : "중계에 올리기";
+  }
+  $("modeRun").onclick = () => setMode("run");
+  $("modeIngest").onclick = () => setMode("ingest");
+
   $("topicSave").onclick = async () => {
     await fetch("/api/topic", {
       method: "POST",
@@ -140,25 +176,38 @@
   $("runBtn").onclick = async () => {
     const prompt = $("promptInput").value.trim();
     if (!prompt) return;
+    if (mode === "ingest" && !$("outputInput").value.trim()) {
+      $("errorBox").innerText = "외부 AI 결과물을 붙여넣어 주세요.";
+      $("errorBox").hidden = false;
+      return;
+    }
     $("errorBox").hidden = true;
     $("runBtn").disabled = true;
-    $("runBtn").innerText = "생성 중…";
+    $("runBtn").innerText = mode === "run" ? "생성 중…" : "올리는 중…";
     try {
-      const res = await fetch("/api/run", {
+      const url = mode === "run" ? "/api/run" : "/api/ingest";
+      const body = mode === "run"
+        ? { team, prompt }
+        : { team, prompt, output: $("outputInput").value.trim(),
+            source: $("sourceInput").value.trim() || "gemini" };
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team, prompt }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.status !== "success") throw new Error(data.message);
       $("promptInput").value = "";
+      if (mode === "ingest") $("outputInput").value = "";
       $("mockNotice").hidden = !data.mock_mode;
     } catch (err) {
-      $("errorBox").innerText = "AI 호출에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+      $("errorBox").innerText = mode === "run"
+        ? "AI 호출에 실패했습니다. 잠시 후 다시 시도해 주세요."
+        : "중계 서버 전송에 실패했습니다. 잠시 후 다시 시도해 주세요.";
       $("errorBox").hidden = false;
     } finally {
       $("runBtn").disabled = false;
-      $("runBtn").innerText = "실행";
+      $("runBtn").innerText = mode === "run" ? "실행" : "중계에 올리기";
     }
   };
 

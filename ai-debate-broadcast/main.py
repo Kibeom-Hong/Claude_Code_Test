@@ -15,16 +15,25 @@ from pathlib import Path
 from typing import List
 
 from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 import ai
 
 app = FastAPI(title="AI Debate Broadcast")
+# 외부 AI 페이지(Gemini 등)에서 브라우저가 직접 /api/ingest를 호출할 수 있도록 허용
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 BASE = Path(__file__).parent
 
 STATE = {"topic": "", "entries": []}
-# entry: {id, team('pro'|'con'), prompt, output, summary(None|dict), ts}
+# entry: {id, team('pro'|'con'), prompt, output, summary(None|dict), source, ts}
+# source: 'claude'(서버가 직접 생성) 또는 'gemini' 등 외부 AI 이름
 
 TEAM_LABEL = {"pro": "옹호팀", "con": "비판팀"}
 
@@ -61,6 +70,13 @@ class TopicRequest(BaseModel):
 class RunRequest(BaseModel):
     team: str  # 'pro' | 'con'
     prompt: str
+
+
+class IngestRequest(BaseModel):
+    team: str  # 'pro' | 'con'
+    prompt: str
+    output: str
+    source: str = "gemini"  # 외부 AI 이름 (표시용)
 
 
 @app.get("/")
@@ -114,12 +130,43 @@ async def run_prompt(req: RunRequest, background_tasks: BackgroundTasks):
         "prompt": req.prompt,
         "output": output,
         "summary": None,
+        "source": "claude",
         "ts": datetime.now().isoformat(timespec="seconds"),
     }
     STATE["entries"].append(entry)
     await manager.broadcast()
     background_tasks.add_task(_summarize_entry, entry["id"])
     return {"status": "success", "entry": entry, "mock_mode": ai.MOCK_MODE}
+
+
+@app.post("/api/ingest")
+async def ingest_entry(req: IngestRequest, background_tasks: BackgroundTasks):
+    """외부 AI(Gemini 등)에서 생성된 프롬프트·결과 쌍을 받아 중계에 올린다.
+
+    - Gemini 페이지의 자동 중계 유저스크립트가 새 대화를 감지해 호출하거나,
+    - 참가팀 화면의 '외부 결과 입력' 폼에서 수동으로 호출한다.
+    """
+    if req.team not in TEAM_LABEL or not req.prompt.strip() or not req.output.strip():
+        return {"status": "error", "message": "team/prompt/output이 올바르지 않습니다."}
+
+    # 같은 내용이 중복 전송되면 무시 (유저스크립트 재감지 대비)
+    for e in STATE["entries"]:
+        if e["team"] == req.team and e["prompt"] == req.prompt and e["output"] == req.output:
+            return {"status": "success", "entry": e, "duplicate": True}
+
+    entry = {
+        "id": str(uuid.uuid4()),
+        "team": req.team,
+        "prompt": req.prompt.strip(),
+        "output": req.output.strip(),
+        "summary": None,
+        "source": req.source.strip() or "gemini",
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+    STATE["entries"].append(entry)
+    await manager.broadcast()
+    background_tasks.add_task(_summarize_entry, entry["id"])
+    return {"status": "success", "entry": entry}
 
 
 @app.websocket("/ws")
